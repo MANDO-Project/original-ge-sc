@@ -1,7 +1,6 @@
 from doctest import debug_script
 import json
 import os
-from tkinter import N
 
 import torch
 import networkx as nx
