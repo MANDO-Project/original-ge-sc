@@ -12,7 +12,37 @@ import re
 import networkx as nx
 from slither.slither import Slither
 from slither.core.cfg.node import NodeType
-from solc import install_solc
+# from solc import install_solc
+
+PATTERN_DICT = {
+            'IF': re.compile(r'^if.*goto\s'),
+            'ENTRY_POINT': re.compile(r'\:=\s*\@this'),
+            'THROW': re.compile(r'^throw\s'),
+            'RETURN': re.compile(r'\sreturn\s'),
+            # 'EXPRESSION': re.compile(r''),
+            # 'BEGIN_LOOP': re.compile(r''),
+            'END_LOOP': re.compile(r'^\s*goto\s*\['),
+            'IF_LOOP': re.compile(r'(^label.*|^)return\s'),
+            'NEW VARIABLE': re.compile(r'=\s*new\s+'),
+        }
+
+def get_number_of_nodes(nx_graph):
+    nx_g = nx_graph
+    number_of_nodes = {}
+    for node, data in nx_g.nodes(data=True):
+        if data['node_type'] not in number_of_nodes.keys():
+            number_of_nodes[data['node_type']] = 1
+        else:
+            number_of_nodes[data['node_type']] += 1
+    return number_of_nodes
+
+
+def find_node_type(node_label, compiled_patterns=PATTERN_DICT):
+    for ntype, pattern in compiled_patterns.items():
+        if len(pattern.findall(node_label.strip('"'))) > 0:
+            return ntype
+    return 'EXPRESSION'
+
 
 
 pattern =  re.compile(r'\d.\d.\d+')
@@ -180,7 +210,7 @@ def compress_full_smart_contracts(smart_contracts, input_graph, output, vulnerab
                 merge_contract_graph = deepcopy(merged_graph)
             elif merged_graph is not None:
                 merge_contract_graph = nx.disjoint_union(merge_contract_graph, merged_graph)
-        
+        # nx.nx_agraph.write_dot(merge_contract_graph, join('experiments/ge-sc-data/source_code/reentrancy/slither', file_name_sc.replace('.sol', '.dot')))
         if full_graph is None:
             full_graph = deepcopy(merge_contract_graph)
         elif merge_contract_graph is not None:
@@ -191,7 +221,8 @@ def compress_full_smart_contracts(smart_contracts, input_graph, output, vulnerab
     #         print('Node has vulnerabilities:', node, node_data)
     print(f'{count}/{len(smart_contracts)}')
     # nx.nx_agraph.write_dot(full_graph, output.replace('.gpickle', '.dot'))
-    nx.write_gpickle(full_graph, output)
+    # nx.write_gpickle(full_graph, output)
+
 
 def merge_data_from_vulnerabilities_json_files(list_vulnerabilities_json_files):
     result = list()
@@ -325,18 +356,59 @@ if __name__ == '__main__':
     # compress_full_smart_contracts(smart_contracts, input_graph, output_path, vulnerabilities=data_vulnerabilities)
 
     ROOT = './experiments/ge-sc-data/source_code'
-    bug_type = {'access_control': 57, 'arithmetic': 60, 'denial_of_service': 46,
-              'front_running': 44, 'reentrancy': 71, 'time_manipulation': 50, 
-              'unchecked_low_level_calls': 95}
+    bug_type = {
+                'access_control': 57, 
+                # 'arithmetic': 60, 'denial_of_service': 46,
+                # 'front_running': 44, 
+                # 'reentrancy': 71, 
+                # 'time_manipulation': 50, 
+                # 'unchecked_low_level_calls': 95
+               }
     for bug, counter in bug_type.items():
-        # source = f'{ROOT}/{bug}/buggy_curated'
+        source = f'{ROOT}/{bug}/buggy_curated'
         # output = f'{ROOT}/{bug}/buggy_curated/cfg_compressed_graphs.gpickle'
-        source = f'{ROOT}/{bug}/curated'
-        output = f'{ROOT}/{bug}/curated/cfg_compressed_graphs.gpickle'
-        smart_contracts = [join(source, f) for f in os.listdir(source) if f.endswith('.sol')]
+        output = f'{ROOT}/{bug}/clean_cfg/cfg_compressed_graphs.gpickle'
+        # source = f'{ROOT}/{bug}/curated'
+        # output = f'{ROOT}/{bug}/curated/cfg_compressed_graphs.gpickle'
+        # output = f'{ROOT}/{bug}/curated/cfg_compressed_graphs.dot'
+        # java_graph_file = f'{ROOT}/{bug}/java/ParameterParser_isOneOf.dot'
+
+        # smart_contracts = [join(source, f) for f in os.listdir(source) if f.endswith('.sol')]
+        smart_contracts = [join(source, 'spank_chain_payment.sol')]
         data_vulnerabilities = None
-        list_vulnerabilities_json_files = ['data/solidifi_buggy_contracts/reentrancy/vulnerabilities.json',
+        list_vulnerabilities_json_files = [
+        f'data/solidifi_buggy_contracts/{bug}/vulnerabilities.json',
         # 'data/solidifi_buggy_contracts/access_control/vulnerabilities.json',
         'data/smartbug-dataset/vulnerabilities.json']
-        data_vulnerabilities = merge_data_from_vulnerabilities_json_files(list_vulnerabilities_json_files)
-        compress_full_smart_contracts(smart_contracts, None, output, vulnerabilities=data_vulnerabilities)
+        # data_vulnerabilities = merge_data_from_vulnerabilities_json_files(list_vulnerabilities_json_files)
+        # compress_full_smart_contracts(smart_contracts, None, output, vulnerabilities=data_vulnerabilities)
+
+        nx_graph = nx.read_gpickle(output)
+        # cleaned_cfg_graph = f'{ROOT}/{bug}/buggy_curated/cleaned_cfg_compressed_graphs.gpickle'
+        cleaned_cfg_graph = f'{ROOT}/{bug}/clean_cfg/cleaned_cfg_compressed_graphs.gpickle'
+
+        node_dict = get_number_of_nodes(nx_graph)
+        print(node_dict)
+        print(nx_graph.nodes[0].keys())
+        # for ntype in node_dict.keys():
+        #     for id, node in nx_graph.nodes(data=True):
+        #         if node['node_type'] == "INLINE_ASM":
+        #             print()
+        #             print(node['node_type'])
+        #             print(node['node_expression'])
+        #             print(node['node_irs'])
+        #             print(node['node_source_code_lines'])
+        #             print(node['source_file'])
+        #             break
+        
+        function_nodes = []
+        for id, node in nx_graph.nodes(data=True):
+            # if node['node_type'] == 'FUNCTION_NAME':
+            if node['node_type'] in ['start', 'exit']:
+                function_nodes.append(id)
+        nx_graph.remove_nodes_from(function_nodes)
+        print(len(nx_graph.nodes()))
+        nodes = list(nx_graph.nodes())
+        mapping = {nodes[i]: i for i in range(len(nx_graph))}
+        ordered_graph = nx.relabel_nodes(nx_graph, mapping)
+        nx.write_gpickle(ordered_graph, cleaned_cfg_graph)

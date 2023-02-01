@@ -1,3 +1,4 @@
+import ast
 from collections import defaultdict
 
 import torch
@@ -153,7 +154,10 @@ def get_node_label(nx_graph):
             target = 0
             labeled_node_ids['valid'].append(node_id)
         else:
-            bug_type = node_label[0]['category']
+            _node_label = node_data['node_info_vulnerabilities']
+            if isinstance(_node_label, str):
+                _node_label = ast.literal_eval(_node_label.strip('"'))
+            bug_type = _node_label[0]['category']
             if bug_type not in label_ids:
                 label_ids[bug_type] = len(label_ids)
             target = label_ids[bug_type]
@@ -173,6 +177,23 @@ def get_node_label_by_nodetype(nx_graph):
         target = 0 if node_label is None else 1
         node_labels[node_type].append(target)
     return node_labels
+
+
+def get_node_pred_by_nodetype(nx_graph, preds):
+    node_preds = defaultdict(list)
+    for id, (_, node_data) in enumerate(nx_graph.nodes(data=True)):
+        node_type = node_data['node_type']
+        target = 1 if preds[id] else 0
+        node_preds[node_type].append(target)
+    return node_preds
+
+
+def get_node_ids_by_nodetype(nx_graph):
+    node_ids = defaultdict(list)
+    for n_id, node_data in nx_graph.nodes(data=True):
+        node_type = node_data['node_type']
+        node_ids[node_type].append(n_id)
+    return node_ids
 
 
 def get_node_ids(graph, source_files):

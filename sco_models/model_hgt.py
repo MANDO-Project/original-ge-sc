@@ -106,7 +106,8 @@ class HGTLayer(nn.Module):
                 attn_score = edge_softmax(sub_graph, attn_score, norm_by='dst')
                 # print(attn_score.unsqueeze(-1))
                 sub_graph.edata['t'] = attn_score.unsqueeze(-1)
-                edge_attn[canonical_etype] = attn_score.unsqueeze(-1)
+                if get_attn:
+                    edge_attn[canonical_etype] = attn_score.unsqueeze(-1)
 
             G.multi_update_all({etype : (fn.u_mul_e('v_%d' % e_id, 't', 'm'), fn.sum('m', 't')) \
                                 for etype, e_id in edge_dict.items()}, cross_reducer = 'mean')

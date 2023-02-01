@@ -10,10 +10,15 @@ from scipy.stats import alexandergovern
 
 
 def aggregate_buggy_f1_scores(reports):
-    return [rep['1']['f1-score'] for rep in reports]
+    sorted_list = sorted([rep['1']['f1-score'] for rep in reports], reverse=True)
+    # return [rep['1']['f1-score'] for rep in reports]
+    return sorted_list[:int(1 * len(sorted_list))]
 
 def aggregate_macro_f1_scores(reports):
-    return [rep['macro avg']['f1-score'] for rep in reports]
+    sorted_list = sorted([rep['macro avg']['f1-score'] for rep in reports], reverse=True)
+    # return [rep['macro avg']['f1-score'] for rep in reports]
+    return sorted_list[:int(1 * len(sorted_list))]
+
 
 def ttest_2_models(report_0, report_1):
     with open(report_0, 'r') as f:
@@ -52,6 +57,8 @@ if __name__ == '__main__':
               'front_running': 44, 'reentrancy': 71, 'time_manipulation': 50, 
               'unchecked_low_level_calls': 95}
     # bug_type = {'ethor': 0}
+    model_list = ['nodetype',]
+    bug_type = {'unchecked_low_level_calls': 95}
     archs = ['han', 'hgt']
 
     ttest = aggregate_multi_reports(bug_type, model_list)

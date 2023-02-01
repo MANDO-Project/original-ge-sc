@@ -19,7 +19,7 @@ from sco_models.model_node_classification import MANDONodeClassifier
 from sco_models.model_hgt import HGTVulNodeClassifier
 from sco_models.utils import score, get_classification_report, get_confusion_matrix, dump_result
 from sco_models.visualization import visualize_average_k_folds
-
+from sco_models.graph_utils import get_node_ids_by_nodetype
 
 def get_binary_mask(total_size, indices):
     mask = torch.zeros(total_size)
@@ -46,7 +46,7 @@ def main(args):
     # Get feature extractor
     print('Getting features')
     if args['node_feature'] == 'han':
-        feature_extractor = MANDONodeClassifier(args['feature_compressed_graph'], feature_extractor=args['cfg_feature_extractor'], node_feature='gae', device=args['device'])
+        feature_extractor = HGTVulNodeClassifier(args['feature_compressed_graph'], feature_extractor=args['cfg_feature_extractor'], node_feature='gae', device=args['device'])
         feature_extractor.load_state_dict(torch.load(args['feature_extractor']))
         feature_extractor.to(args['device'])
         feature_extractor.eval()
@@ -55,9 +55,22 @@ def main(args):
 
     nx_graph = nx.read_gpickle(args['compressed_graph'])
     number_of_nodes = len(nx_graph)
-    model = MANDONodeClassifier(args['compressed_graph'], feature_extractor=feature_extractor, node_feature=args['node_feature'], device=device)
-    total_train_files = [f for f in os.listdir(args['dataset']) if f.endswith('.sol')]
-    total_test_files = [f for f in os.listdir(args['testset']) if f.endswith('.sol')]
+    model = HGTVulNodeClassifier(args['compressed_graph'], feature_extractor=feature_extractor, node_feature=args['node_feature'], device=device)
+    # total_train_files = [f for f in os.listdir(args['dataset']) if f.endswith('.sol')]
+    # total_test_files = [f for f in os.listdir(args['testset']) if f.endswith('.java')]
+
+    # java_files = ['FileUploadBase.dot', 'MultipartStream.dot']
+    java_files = [f.replace('.dot', '.java') for f in os.listdir('/Users/minh/Documents/2022/programing_analysis/tree-sitter-codeviews/code_test_files/vul4j/cfg') if f.endswith('.dot')]
+    sol_files = [f.replace('.dot', '.sol') for f in os.listdir('experiments/ge-sc-data/source_code/access_control/cfg') if f.endswith('.dot')]
+    total_train_files = sol_files + java_files 
+    # total_train_files = java_files
+    # total_train_files = [f.replace('.dot', '.sol') for f in os.listdir(args['dataset']) if f.endswith('.dot')]
+    # For java
+    # total_train_files = [f.replace('.dot', '.java') for f in os.listdir(args['dataset']) if f.endswith('.dot')]
+
+
+    total_test_files = total_train_files[int(-0.3 * len(total_train_files)):]
+
     total_train_files = list(set(total_train_files).difference(set(total_test_files)))
     # clean_smart_contract = './ge-sc-data/smartbugs_wild/clean_50'
     # total_clean_files = [f for f in os.listdir(clean_smart_contract) if f.endswith('.sol')]
@@ -65,8 +78,8 @@ def main(args):
     total_train_files = list(set(total_train_files).difference(set(total_clean_files)))
 
     # Train valid split data
-    train_rate = 0.9
-    val_rate = 0.05
+    train_rate = 0.8
+    val_rate = 0.2
     rand_train_ids = torch.randperm(len(total_train_files)).tolist()
     rand_test_ids = torch.randperm(len(total_test_files)).tolist()
     rand_clean_ids = torch.randperm(len(total_clean_files)).tolist()
@@ -98,12 +111,23 @@ def main(args):
 
     print('Label dict: ', model.label_ids)
     print(f'Number of source code for Buggy/Curated: {len(total_train_files)}/{len(total_test_files)}')
-    total_train_ids = get_node_ids(nx_graph, total_train_files)
+    # total_train_ids = get_node_ids(nx_graph, total_train_files)
     train_ids = get_node_ids(nx_graph, train_files)
+    val_files = val_files + test_files
     val_ids = get_node_ids(nx_graph, val_files)
     test_ids = get_node_ids(nx_graph, test_files)
+
+    java_files = [f for f in os.listdir(args['testset']) if f.endswith('.java')]
+    java_node_ids = get_node_ids(nx_graph, java_files)
+    # java_node_ids = list(set(java_node_ids).intersection(val_ids))
+    java_node_mask = get_binary_mask(number_of_nodes, java_node_ids)
+    train_ids = list(set(train_ids) - set(java_node_ids))
+
+    # print(train_files)
+    # print(val_files)
     targets = torch.tensor(model.node_labels, device=args['device'])
-    assert len(set(train_ids) | set(val_ids) | set(test_ids)) == len(targets)
+    # assert len(set(train_ids) | set(val_ids) | set(test_ids)) == len(targets)
+    assert len(set(train_ids) | set(val_ids) | set(java_node_ids)) == len(targets)
     buggy_node_ids = torch.nonzero(targets).squeeze().tolist()
     print('Buggy node {}/{} ({}%)'.format(len(set(buggy_node_ids)), len(targets), 100*len(set(buggy_node_ids))/len(targets)))
     # for fold, (train_ids, val_ids) in enumerate(kfold.split(total_train_ids)):
@@ -114,11 +138,11 @@ def main(args):
     train_results[fold] = {'loss': [], 'acc': [], 'micro_f1': [], 'macro_f1': [], 'buggy_f1': [], 'lrs': []}
     val_results[fold] = {'loss': [], 'acc': [], 'micro_f1': [], 'macro_f1': [], 'buggy_f1': []}
     train_buggy_node_ids = set(buggy_node_ids).intersection(set(train_ids))
-    print('Buggy nodes in train: {}/{} ({}%)'.format(len(train_buggy_node_ids), len(train_ids), 100*len(train_buggy_node_ids)/len(train_ids)))
+    print('Buggy nodes in train: {}/{} ({}%)'.format(len(train_buggy_node_ids), len(train_ids), round(100*len(train_buggy_node_ids)/len(train_ids), 1)))
     val_buggy_node_ids = set(buggy_node_ids).intersection(set(val_ids))
-    print('Buggy nodes in valid: {}/{} ({}%)'.format(len(val_buggy_node_ids), len(val_ids), 100*len(val_buggy_node_ids)/len(val_ids)))
-    test_buggy_node_ids =set(buggy_node_ids).intersection(set(test_ids))
-    print('Buggy nodes in test: {}/{} ({}%)'.format(len(test_buggy_node_ids), len(test_ids), 100*len(test_buggy_node_ids)/len(test_ids)))
+    print('Buggy nodes in valid: {}/{} ({}%)'.format(len(val_buggy_node_ids), len(val_ids), round(100*len(val_buggy_node_ids)/len(val_ids), 1)))
+    # test_buggy_node_ids =set(buggy_node_ids).intersection(set(test_ids))
+    # print('Buggy nodes in test: {}/{} ({}%)'.format(len(test_buggy_node_ids), len(test_ids), 100*len(test_buggy_node_ids)/len(test_ids)))
     print('Start training fold {} with {}/{} train/val smart contracts'.format(fold, len(train_ids), len(val_ids)))
     total_steps = epochs
     # class_counter = [len(labeled_node_ids['valid']), len(labeled_node_ids['buggy'])]
@@ -132,6 +156,17 @@ def main(args):
     train_mask = get_binary_mask(number_of_nodes, train_ids)
     val_mask = get_binary_mask(number_of_nodes, val_ids)
     test_mask = get_binary_mask(number_of_nodes, test_ids)
+    node_ids = get_node_ids_by_nodetype(nx_graph)
+
+    function_node_ids = node_ids['function_definition']
+    function_node_ids = list(set(val_ids).intersection(set(function_node_ids)))
+    function_node_mask = get_binary_mask(number_of_nodes, function_node_ids)
+
+    # java_files = [f for f in os.listdir(args['testset']) if f.endswith('.java')]
+    # java_node_ids = get_node_ids(nx_graph, java_files)
+    # # java_node_ids = list(set(java_node_ids).intersection(val_ids))
+    # java_node_mask = get_binary_mask(number_of_nodes, java_node_ids)
+
     if hasattr(torch, 'BoolTensor'):
         train_mask = train_mask.bool()
         val_mask = val_mask.bool()
@@ -147,8 +182,8 @@ def main(args):
         optimizer.step()
         scheduler.step()
         train_acc, train_micro_f1, train_macro_f1, train_buggy_f1 = score(targets[train_mask], logits[train_mask])
-        # print('Train Loss: {:.4f} | Train Micro f1: {:.4f} | Train Macro f1: {:.4f} | Train Accuracy: {:.4f}'.format(
-        #         train_loss.item(), train_micro_f1, train_macro_f1, train_acc))
+        print('Train Loss: {:.4f} | Train Micro f1: {:.4f} | Train Macro f1: {:.4f} | Train Accuracy: {:.4f}'.format(
+                train_loss.item(), train_micro_f1, train_macro_f1, train_acc))
         val_loss = loss_fcn(logits[val_mask], targets[val_mask]) 
         val_acc, val_micro_f1, val_macro_f1, val_buggy_f1 = score(targets[val_mask], logits[val_mask])
         print('Val Loss:   {:.4f} | Val Micro f1:   {:.4f} | Val Macro f1:   {:.4f} | Val Accuracy:   {:.4f}'.format(
@@ -177,10 +212,19 @@ def main(args):
     with torch.no_grad():
         logits = model()
         logits = logits.to(args['device'])
-        test_acc, test_micro_f1, test_macro_f1, test_buggy_f1 = score(targets[test_mask], logits[test_mask])
+        test_acc, test_micro_f1, test_macro_f1, test_buggy_f1 = score(targets[val_mask], logits[val_mask])
         print('Test Micro f1:   {:.4f} | Test Macro f1:   {:.4f} | Test Accuracy:   {:.4f}'.format(test_micro_f1, test_macro_f1, test_acc))
-        print('Classification report', '\n', get_classification_report(targets[test_mask], logits[test_mask]))
-        print('Confusion matrix', '\n', get_confusion_matrix(targets[test_mask], logits[test_mask]))
+        print('Classification report', '\n', get_classification_report(targets[val_mask], logits[val_mask]))
+        print('Confusion matrix', '\n', get_confusion_matrix(targets[val_mask], logits[val_mask]))
+
+        # function_acc, function_micro_f1, function_macro_f1, function_buggy_f1 = score(targets[function_node_mask], logits[function_node_mask])
+        # print('function Micro f1:   {:.4f} | function Macro f1:   {:.4f} | function Accuracy:   {:.4f}'.format(function_micro_f1, function_macro_f1, function_acc))
+        # print('Classification report', '\n', get_classification_report(targets[function_node_mask], logits[function_node_mask]))
+        # print('Confusion matrix', '\n', get_confusion_matrix(targets[function_node_mask], logits[function_node_mask]))
+        java_acc, java_micro_f1, java_macro_f1, java_buggy_f1 = score(targets[java_node_mask], logits[java_node_mask])
+        print('java Micro f1:   {:.4f} | java Macro f1:   {:.4f} | java Accuracy:   {:.4f}'.format(java_micro_f1, java_macro_f1, java_acc))
+        print('Classification report', '\n', get_classification_report(targets[java_node_mask], logits[java_node_mask]))
+        print('Confusion matrix', '\n', get_confusion_matrix(targets[java_node_mask], logits[java_node_mask]))
     return train_results, val_results
 
 
@@ -233,8 +277,8 @@ if __name__ == '__main__':
     args.update(default_configure)
     torch.manual_seed(args['seed'])
 
-    # if not os.path.exists(args['output_models']):
-    #     os.makedirs(args['output_models'])
+    if not os.path.exists(os.path.dirname(args['output_models'])):
+        os.makedirs(os.path.dirname(args['output_models']))
 
     # Training
     if not args['test']:
@@ -251,7 +295,7 @@ if __name__ == '__main__':
         nx_graph = nx.read_gpickle(args['compressed_graph'])
         number_of_nodes = len(nx_graph)
         test_files = [f for f in os.listdir(args['testset']) if f.endswith('.sol')]
-        model = MANDONodeClassifier(args['compressed_graph'], feature_extractor=None, node_feature=args['node_feature'], device=args['device'])
+        model = HGTVulNodeClassifier(args['compressed_graph'], feature_extractor=None, node_feature=args['node_feature'], device=args['device'])
         model.load_state_dict(torch.load(args['feature_extractor']))
         model.eval()
         model.to(args['device'])
