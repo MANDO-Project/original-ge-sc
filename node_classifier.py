@@ -14,11 +14,11 @@ import torch
 import networkx as nx
 from sklearn.model_selection import KFold
 
-from sco_models.model_hetero import MANDOGraphClassifier
 from sco_models.model_node_classification import MANDONodeClassifier
 from sco_models.model_hgt import HGTVulNodeClassifier
 from sco_models.utils import score, get_classification_report, get_confusion_matrix, dump_result
 from sco_models.visualization import visualize_average_k_folds
+from sco_models.tools import EarlyStopping
 
 
 def get_binary_mask(total_size, indices):
@@ -46,7 +46,7 @@ def main(args):
     # Get feature extractor
     print('Getting features')
     if args['node_feature'] == 'han':
-        feature_extractor = MANDONodeClassifier(args['feature_compressed_graph'], feature_extractor=args['cfg_feature_extractor'], node_feature='gae', device=args['device'])
+        feature_extractor = HGTVulNodeClassifier(args['feature_compressed_graph'], feature_extractor=args['cfg_feature_extractor'], node_feature='gae', device=args['device'])
         feature_extractor.load_state_dict(torch.load(args['feature_extractor']))
         feature_extractor.to(args['device'])
         feature_extractor.eval()
@@ -55,7 +55,7 @@ def main(args):
 
     nx_graph = nx.read_gpickle(args['compressed_graph'])
     number_of_nodes = len(nx_graph)
-    model = MANDONodeClassifier(args['compressed_graph'], feature_extractor=feature_extractor, node_feature=args['node_feature'], device=device)
+    model = HGTVulNodeClassifier(args['compressed_graph'], feature_extractor=feature_extractor, node_feature=args['node_feature'], device=device)
     total_train_files = [f for f in os.listdir(args['dataset']) if f.endswith('.sol')]
     total_test_files = [f for f in os.listdir(args['testset']) if f.endswith('.sol')]
     total_train_files = list(set(total_train_files).difference(set(total_test_files)))
@@ -65,8 +65,9 @@ def main(args):
     total_train_files = list(set(total_train_files).difference(set(total_clean_files)))
 
     # Train valid split data
-    train_rate = 0.9
-    val_rate = 0.05
+    train_rate = 0.7
+    val_rate = 0.15
+    test_rate = 0.15
     rand_train_ids = torch.randperm(len(total_train_files)).tolist()
     rand_test_ids = torch.randperm(len(total_test_files)).tolist()
     rand_clean_ids = torch.randperm(len(total_clean_files)).tolist()
@@ -129,6 +130,7 @@ def main(args):
     loss_fcn = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0002)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.005, total_steps=total_steps)
+    early_stopping = EarlyStopping(patience=args['patience'], delta=0.001, verbose=True)
     train_mask = get_binary_mask(number_of_nodes, train_ids)
     val_mask = get_binary_mask(number_of_nodes, val_ids)
     test_mask = get_binary_mask(number_of_nodes, test_ids)
@@ -137,6 +139,7 @@ def main(args):
         val_mask = val_mask.bool()
         test_mask = test_mask.bool()
     retain_graph = True if args['node_feature'] == 'han' else False
+    stop_epoch = epochs
     for epoch in range(epochs):
         print('Fold {} - Epochs {}'.format(fold, epoch))
         optimizer.zero_grad()
@@ -166,6 +169,14 @@ def main(args):
         val_results[fold]['macro_f1'].append(val_macro_f1)
         val_results[fold]['buggy_f1'].append(val_buggy_f1)
         val_results[fold]['acc'].append(val_acc)
+        # Early stopping
+        early_stopping(val_loss)
+        if early_stopping.early_stop:
+            if stop_epoch >= epoch:
+                early_stopping.save_checkpoint(val_loss, model, args['output_models'].replace('.pth', f'_{epoch}.pth'))
+                earliest_epoch = epoch
+            stop_epoch = epoch
+    print("Early stopping at epoch {}".format(earliest_epoch))
     print('Saving model fold {}'.format(fold))
     # dump_result(targets[val_mask], logits[val_mask], os.path.join(args['output_models'], f'confusion_{fold}.csv'))
     # save_path = os.path.join(args['output_models'])
@@ -217,6 +228,8 @@ if __name__ == '__main__':
     train_option_params.add_argument('--test', action='store_true', help='Set true if you only want to run test phase')
     train_option_params.add_argument('--non_visualize', action='store_true',
                         help='Wheather you want to visualize the metrics')
+    train_option_params.add_argument('--patience', type=int, default=7,
+                        help='Patience for early stopping')
     args = parser.parse_args().__dict__
 
     default_configure = {
@@ -227,7 +240,7 @@ if __name__ == '__main__':
     'weight_decay': 0.001,
     'num_epochs': 100,
     'batch_size': 256,
-    'patience': 100,
+    # 'patience': 10,
     'device': 'cuda:0' if torch.cuda.is_available() else 'cpu'
     }
     args.update(default_configure)
@@ -251,7 +264,7 @@ if __name__ == '__main__':
         nx_graph = nx.read_gpickle(args['compressed_graph'])
         number_of_nodes = len(nx_graph)
         test_files = [f for f in os.listdir(args['testset']) if f.endswith('.sol')]
-        model = MANDONodeClassifier(args['compressed_graph'], feature_extractor=None, node_feature=args['node_feature'], device=args['device'])
+        model = HGTVulNodeClassifier(args['compressed_graph'], feature_extractor=None, node_feature=args['node_feature'], device=args['device'])
         model.load_state_dict(torch.load(args['feature_extractor']))
         model.eval()
         model.to(args['device'])

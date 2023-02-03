@@ -1,3 +1,4 @@
+import ast
 from collections import defaultdict
 
 import torch
@@ -153,7 +154,10 @@ def get_node_label(nx_graph):
             target = 0
             labeled_node_ids['valid'].append(node_id)
         else:
-            bug_type = node_label[0]['category']
+            _node_label = node_data['node_info_vulnerabilities']
+            if isinstance(_node_label, str):
+                _node_label = ast.literal_eval(_node_label.strip('"'))
+            bug_type = _node_label[0]['category']
             if bug_type not in label_ids:
                 label_ids[bug_type] = len(label_ids)
             target = label_ids[bug_type]
