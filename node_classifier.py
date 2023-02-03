@@ -59,13 +59,14 @@ def main(args):
     # total_train_files = [f for f in os.listdir(args['dataset']) if f.endswith('.sol')]
     # total_test_files = [f for f in os.listdir(args['testset']) if f.endswith('.java')]
 
-    # java_files = ['FileUploadBase.dot', 'MultipartStream.dot']
+    # For Sol + Java
     java_files = [f.replace('.dot', '.java') for f in os.listdir('/Users/minh/Documents/2022/programing_analysis/tree-sitter-codeviews/code_test_files/vul4j/cfg') if f.endswith('.dot')]
     sol_files = [f.replace('.dot', '.sol') for f in os.listdir('experiments/ge-sc-data/source_code/access_control/cfg') if f.endswith('.dot')]
     total_train_files = sol_files + java_files 
-    # total_train_files = java_files
+
+    # For Solidity
     # total_train_files = [f.replace('.dot', '.sol') for f in os.listdir(args['dataset']) if f.endswith('.dot')]
-    # For java
+    # For Java
     # total_train_files = [f.replace('.dot', '.java') for f in os.listdir(args['dataset']) if f.endswith('.dot')]
 
 
@@ -78,8 +79,8 @@ def main(args):
     total_train_files = list(set(total_train_files).difference(set(total_clean_files)))
 
     # Train valid split data
-    train_rate = 0.8
-    val_rate = 0.2
+    train_rate = 0.7
+    val_rate = 0.3
     rand_train_ids = torch.randperm(len(total_train_files)).tolist()
     rand_test_ids = torch.randperm(len(total_test_files)).tolist()
     rand_clean_ids = torch.randperm(len(total_clean_files)).tolist()
@@ -117,17 +118,17 @@ def main(args):
     val_ids = get_node_ids(nx_graph, val_files)
     test_ids = get_node_ids(nx_graph, test_files)
 
-    java_files = [f for f in os.listdir(args['testset']) if f.endswith('.java')]
-    java_node_ids = get_node_ids(nx_graph, java_files)
+    # java_files = [f for f in os.listdir(args['testset']) if f.endswith('.java')]
+    # java_node_ids = get_node_ids(nx_graph, java_files)
     # java_node_ids = list(set(java_node_ids).intersection(val_ids))
-    java_node_mask = get_binary_mask(number_of_nodes, java_node_ids)
-    train_ids = list(set(train_ids) - set(java_node_ids))
+    # java_node_mask = get_binary_mask(number_of_nodes, java_node_ids)
+    # train_ids = list(set(train_ids) - set(java_node_ids))
 
     # print(train_files)
     # print(val_files)
     targets = torch.tensor(model.node_labels, device=args['device'])
     # assert len(set(train_ids) | set(val_ids) | set(test_ids)) == len(targets)
-    assert len(set(train_ids) | set(val_ids) | set(java_node_ids)) == len(targets)
+    # assert len(set(train_ids) | set(val_ids) | set(java_node_ids)) == len(targets)
     buggy_node_ids = torch.nonzero(targets).squeeze().tolist()
     print('Buggy node {}/{} ({}%)'.format(len(set(buggy_node_ids)), len(targets), 100*len(set(buggy_node_ids))/len(targets)))
     # for fold, (train_ids, val_ids) in enumerate(kfold.split(total_train_ids)):
@@ -162,10 +163,11 @@ def main(args):
     function_node_ids = list(set(val_ids).intersection(set(function_node_ids)))
     function_node_mask = get_binary_mask(number_of_nodes, function_node_ids)
 
-    # java_files = [f for f in os.listdir(args['testset']) if f.endswith('.java')]
-    # java_node_ids = get_node_ids(nx_graph, java_files)
-    # # java_node_ids = list(set(java_node_ids).intersection(val_ids))
-    # java_node_mask = get_binary_mask(number_of_nodes, java_node_ids)
+    java_files = [f for f in os.listdir(args['testset']) if f.endswith('.java')]
+    java_node_ids = get_node_ids(nx_graph, java_files)
+    # java_node_ids = list(set(java_node_ids).intersection(val_ids))
+    java_node_mask = get_binary_mask(number_of_nodes, java_node_ids)
+    java_node_mask = java_node_mask.bool()
 
     if hasattr(torch, 'BoolTensor'):
         train_mask = train_mask.bool()
@@ -221,6 +223,7 @@ def main(args):
         # print('function Micro f1:   {:.4f} | function Macro f1:   {:.4f} | function Accuracy:   {:.4f}'.format(function_micro_f1, function_macro_f1, function_acc))
         # print('Classification report', '\n', get_classification_report(targets[function_node_mask], logits[function_node_mask]))
         # print('Confusion matrix', '\n', get_confusion_matrix(targets[function_node_mask], logits[function_node_mask]))
+        
         java_acc, java_micro_f1, java_macro_f1, java_buggy_f1 = score(targets[java_node_mask], logits[java_node_mask])
         print('java Micro f1:   {:.4f} | java Macro f1:   {:.4f} | java Accuracy:   {:.4f}'.format(java_micro_f1, java_macro_f1, java_acc))
         print('Classification report', '\n', get_classification_report(targets[java_node_mask], logits[java_node_mask]))
@@ -269,7 +272,7 @@ if __name__ == '__main__':
     'hidden_units': 8,
     'dropout': 0.6,
     'weight_decay': 0.001,
-    'num_epochs': 100,
+    'num_epochs': 40,
     'batch_size': 256,
     'patience': 100,
     'device': 'cuda:0' if torch.cuda.is_available() else 'cpu'
