@@ -17,11 +17,14 @@ from .graph_utils import add_hetero_ids, \
                          generate_hetero_graph_data, \
                          get_number_of_nodes, add_cfg_mapping, \
                          get_node_label, get_node_ids_dict, \
-                         map_node_embedding, get_symmatrical_metapaths, \
+                         map_node_embedding, map_node_token, get_node_token, \
+                         get_symmatrical_metapaths, \
                          reflect_graph, get_node_tracker, get_node_ids_by_filename, \
                          generate_random_node_features, generate_zeros_node_features, \
                          get_length_3_metapath, get_length_2_metapath, \
-                         generate_lstm_node_features
+                         generate_lstm_node_features, \
+                         get_function_labels, \
+                         get_node_ids_by_abs_function_name
 
 
 class HGTLayer(nn.Module):
@@ -290,6 +293,20 @@ class HGTVulNodeClassifier(nn.Module):
                 embedding = pickle.load(f, encoding="utf8")
             embedding = torch.tensor(embedding, device=device)
             features = map_node_embedding(nx_graph, embedding)
+        elif node_feature == 'random':
+            embedding_dim = int(feature_extractor)
+            self.in_size = embedding_dim
+            features = generate_random_node_features(nx_graph, self.in_size)
+            features = {k: v.to(self.device) for k, v in features.items()}
+        elif node_feature == 'token':
+            embedding_dim = 512
+            self.in_size = embedding_dim
+            assert feature_extractor is not None, "Please pass features extraction model"
+            features = map_node_token(nx_graph, feature_extractor)
+        elif node_feature == 'inside_token':
+            embedding_dim = 512
+            self.in_size = embedding_dim
+            features = get_node_token(nx_graph)
 
         self.symmetrical_global_graph = self.symmetrical_global_graph.to(self.device)
         # self.symmetrical_global_graph.ndata['feat'] = features
@@ -397,8 +414,11 @@ class HGTVulGraphClassifier(nn.Module):
 
         # Get Node Labels
         self.node_ids_dict = get_node_ids_dict(nx_graph)
-        # _node_tracker = get_node_tracker(nx_graph, self.filename_mapping)
         self.node_ids_by_filename = get_node_ids_by_filename(nx_graph)
+
+        # self.function_labels = get_function_labels(nx_graph)
+        # self.node_ids_by_function = get_node_ids_by_abs_function_name(nx_graph)
+        # _node_tracker = get_node_tracker(nx_graph, self.filename_mapping)
         # Reflect graph data
         self.symmetrical_global_graph_data = reflect_graph(nx_g_data)
         # self.symmetrical_global_graph_data = nx_g_data
@@ -543,16 +563,39 @@ class HGTVulGraphClassifier(nn.Module):
         output = self.classify(batched_graph_embedded)
         return output, batched_graph_embedded
 
+    def _forward(self, function_names, save_featrues=None):
+        h = {}
+        hiddens = torch.zeros((self.symmetrical_global_graph.number_of_nodes(), self.hidden_size), device=self.device)
+        for ntype in self.symmetrical_global_graph.ntypes:
+            n_id = self.ntypes_dict[ntype]
+            h[ntype] = F.gelu(self.adapt_ws[n_id](self.symmetrical_global_graph.nodes[ntype].data['inp']))
+        for i in range(self.num_layers):
+            h = self.gcs[i](self.symmetrical_global_graph, h)
+        for ntype, feature in h.items():
+            assert len(self.node_ids_dict[ntype]) == feature.shape[0]
+            hiddens[self.node_ids_dict[ntype]] = feature
+        function_embedded = []
+        for function_name in function_names:
+            node_list = self.node_ids_by_function[function_name]
+            function_embedded.append(hiddens[node_list].mean(0).tolist())
+        function_embedded = torch.tensor(function_embedded).to(self.device)
+        if save_featrues:
+            torch.save(function_embedded, save_featrues)
+        output = self.classify(function_embedded)
+        return output, function_embedded
+
 
 if __name__ == '__main__':
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     compressed_graph = './experiments/ge-sc-data/source_code/reentrancy/buggy_curated/cfg_cg_compressed_graphs.gpickle'
     dataset = './experiments/ge-sc-data/source_code/access_control/clean_57_buggy_curated_0'
+    compressed_graph = './experiments/ge-sc-data/source_code/multi_bugs/cfg_multi_bugs.gpickle'
     node_feature = 'nodetype'
     feature_extractor = None
-    model = HGTVulNodeClassifier(compressed_graph, feature_extractor=None, node_feature=node_feature, device=device).to(device)
+    model = HGTVulGraphClassifier(compressed_graph, feature_extractor=None, node_feature=node_feature, device=device).to(device)
     # model.train()
     # logits = model()
     # print(model.meta_paths)
     # print(len(model.length_3_meta_paths))
-    load_meta_paths('./metapath_length_3.txt')
+    # load_meta_paths('./metapath_length_3.txt')
+    print(model.function_labels)

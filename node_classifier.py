@@ -36,6 +36,24 @@ def get_node_ids(graph, source_files):
     return file_ids
 
 
+def get_node_ids_by_source_path(graph, source_paths):
+    file_ids = []
+    for node_ids, node_data in graph.nodes(data=True):
+        filename = node_data['source_file']
+        if filename in source_paths:
+            file_ids.append(node_ids)
+    return file_ids
+
+
+def get_all_source_paths(graph):
+    source_paths = []
+    for _, node_data in graph.nodes(data=True):
+        # print(node_data)
+        file_path = node_data['source_file']
+        source_paths.append(file_path)
+    return list(set(source_paths))
+
+
 def main(args):
     epochs = args['num_epochs']
     k_folds = args['k_folds']
@@ -56,13 +74,21 @@ def main(args):
     nx_graph = nx.read_gpickle(args['compressed_graph'])
     number_of_nodes = len(nx_graph)
     model = HGTVulNodeClassifier(args['compressed_graph'], feature_extractor=feature_extractor, node_feature=args['node_feature'], device=device)
-    total_train_files = [f for f in os.listdir(args['dataset']) if f.endswith('.sol')]
-    total_test_files = [f for f in os.listdir(args['testset']) if f.endswith('.sol')]
-    total_train_files = list(set(total_train_files).difference(set(total_test_files)))
-    # clean_smart_contract = './ge-sc-data/smartbugs_wild/clean_50'
-    # total_clean_files = [f for f in os.listdir(clean_smart_contract) if f.endswith('.sol')]
+
+    # total_train_files = [f for f in os.listdir(args['dataset']) if f.endswith('.sol')]
+    # total_test_files = [f for f in os.listdir(args['testset']) if f.endswith('.sol')]
+    # total_train_files = list(set(total_train_files).difference(set(total_test_files)))
+    # # clean_smart_contract = './ge-sc-data/smartbugs_wild/clean_50'
+    # # total_clean_files = [f for f in os.listdir(clean_smart_contract) if f.endswith('.sol')]
+    # total_clean_files = []
+    # total_train_files = list(set(total_train_files).difference(set(total_clean_files)))
+
+    total_train_files = get_all_source_paths(model.nx_graph)
+    total_test_files = []
+    # web3bugs_files = ['yVault.sol', 'ERC721Payable.sol', 'HybridPool.sol', 'MarginRouter.sol']
+    # for f in web3bugs_files:
+    #     total_train_files.remove(f)
     total_clean_files = []
-    total_train_files = list(set(total_train_files).difference(set(total_clean_files)))
 
     # Train valid split data
     train_rate = 0.7
@@ -99,12 +125,22 @@ def main(args):
 
     print('Label dict: ', model.label_ids)
     print(f'Number of source code for Buggy/Curated: {len(total_train_files)}/{len(total_test_files)}')
-    total_train_ids = get_node_ids(nx_graph, total_train_files)
-    train_ids = get_node_ids(nx_graph, train_files)
-    val_ids = get_node_ids(nx_graph, val_files)
-    test_ids = get_node_ids(nx_graph, test_files)
+    # total_train_ids = get_node_ids(nx_graph, total_train_files)
+    # train_ids = get_node_ids(nx_graph, train_files)
+    # val_ids = get_node_ids(nx_graph, val_files)
+    # test_ids = get_node_ids(nx_graph, test_files)
+
+
+
+    train_ids = get_node_ids_by_source_path(nx_graph, train_files)
+    val_ids = get_node_ids_by_source_path(nx_graph, val_files)
+    test_ids = get_node_ids_by_source_path(nx_graph, test_files)
+    # web3bugs_ids = get_node_ids_by_source_path(nx_graph, web3bugs_files)
+
     targets = torch.tensor(model.node_labels, device=args['device'])
     assert len(set(train_ids) | set(val_ids) | set(test_ids)) == len(targets)
+    # assert len(set(train_ids) | set(val_ids) | set(test_ids) | set(web3bugs_ids)) == len(targets)
+
     buggy_node_ids = torch.nonzero(targets).squeeze().tolist()
     print('Buggy node {}/{} ({}%)'.format(len(set(buggy_node_ids)), len(targets), 100*len(set(buggy_node_ids))/len(targets)))
     # for fold, (train_ids, val_ids) in enumerate(kfold.split(total_train_ids)):
@@ -134,12 +170,15 @@ def main(args):
     train_mask = get_binary_mask(number_of_nodes, train_ids)
     val_mask = get_binary_mask(number_of_nodes, val_ids)
     test_mask = get_binary_mask(number_of_nodes, test_ids)
+    # web3bugs_mask = get_binary_mask(number_of_nodes, web3bugs_ids)
     if hasattr(torch, 'BoolTensor'):
         train_mask = train_mask.bool()
         val_mask = val_mask.bool()
         test_mask = test_mask.bool()
     retain_graph = True if args['node_feature'] == 'han' else False
     stop_epoch = epochs
+    earliest_epoch = 0
+    checkpoint_path = args['output_models']
     for epoch in range(epochs):
         print('Fold {} - Epochs {}'.format(fold, epoch))
         optimizer.zero_grad()
@@ -173,7 +212,8 @@ def main(args):
         early_stopping(val_loss)
         if early_stopping.early_stop:
             if stop_epoch >= epoch:
-                early_stopping.save_checkpoint(val_loss, model, args['output_models'].replace('.pth', f'_{epoch}.pth'))
+                checkpoint_path = args['output_models'].replace('.pth', f'_{epoch}.pth')
+                early_stopping.save_checkpoint(val_loss, model, checkpoint_path)
                 earliest_epoch = epoch
             stop_epoch = epoch
     print("Early stopping at epoch {}".format(earliest_epoch))
@@ -184,14 +224,26 @@ def main(args):
     torch.save(model.state_dict(), args['output_models'])
     print('Testing phase')
     print(f'Testing on {len(test_ids)} nodes')
-    model.eval()
+
+    saved_models = model
+    saved_models.load_state_dict(torch.load(checkpoint_path))
+    saved_models.eval()
     with torch.no_grad():
-        logits = model()
+        logits = saved_models()
         logits = logits.to(args['device'])
         test_acc, test_micro_f1, test_macro_f1, test_buggy_f1 = score(targets[test_mask], logits[test_mask])
         print('Test Micro f1:   {:.4f} | Test Macro f1:   {:.4f} | Test Accuracy:   {:.4f}'.format(test_micro_f1, test_macro_f1, test_acc))
         print('Classification report', '\n', get_classification_report(targets[test_mask], logits[test_mask]))
         print('Confusion matrix', '\n', get_confusion_matrix(targets[test_mask], logits[test_mask]))
+
+    # with torch.no_grad():
+    #     logits = saved_models()
+    #     logits = logits.to(args['device'])
+    #     web3bugs_acc, web3bugs_micro_f1, web3bugs_macro_f1, web3bugs_buggy_f1 = score(targets[web3bugs_mask], logits[web3bugs_mask])
+    #     print('web3bugs Micro f1:   {:.4f} | web3bugs Macro f1:   {:.4f} | web3bugs Accuracy:   {:.4f}'.format(web3bugs_micro_f1, web3bugs_macro_f1, web3bugs_acc))
+    #     print('Classification report', '\n', get_classification_report(targets[web3bugs_mask], logits[web3bugs_mask]))
+    #     print('Confusion matrix', '\n', get_confusion_matrix(targets[web3bugs_mask], logits[web3bugs_mask]))
+    
     return train_results, val_results
 
 
@@ -246,8 +298,7 @@ if __name__ == '__main__':
     args.update(default_configure)
     torch.manual_seed(args['seed'])
 
-    # if not os.path.exists(args['output_models']):
-    #     os.makedirs(args['output_models'])
+    os.makedirs(os.path.split(args['output_models'])[0], exist_ok=True)
 
     # Training
     if not args['test']:

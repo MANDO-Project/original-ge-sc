@@ -3,6 +3,7 @@ from collections import defaultdict
 
 import torch
 import networkx as nx
+import numpy as np
 import dgl
 
 from .opcodes import int2op
@@ -67,6 +68,31 @@ def map_node_embedding(nx_graph, embedding):
             features[node_type] = embedding[node_ids].unsqueeze(0)
         else:
             features[node_type] = torch.cat((features[node_type], embedding[node_ids].unsqueeze(0)))
+    return features
+
+
+def map_node_token(nx_graph, token):
+    features = {}
+    if isinstance(token, str):
+        tokens = torch.load(token)
+    for node_ids, node_data in nx_graph.nodes(data=True):
+        file_name = node_data['source_file']
+        node_type = node_data['node_type']
+        if node_type not in features:
+            features[node_type] = tokens[file_name].unsqueeze(0)
+        else:
+            features[node_type] = torch.cat((features[node_type], tokens[file_name].unsqueeze(0)))
+    return features
+
+
+def get_node_token(nx_graph):
+    features = {}
+    for node_ids, node_data in nx_graph.nodes(data=True):
+        node_type = node_data['node_type']
+        if node_type not in features:
+            features[node_type] = node_data['token'].unsqueeze(0)
+        else:
+            features[node_type] = torch.cat((features[node_type], node_data['token'].unsqueeze(0)))
     return features
 
 
@@ -179,6 +205,37 @@ def get_node_label_by_nodetype(nx_graph):
     return node_labels
 
 
+def get_function_boundaries(nx_graph):
+    function_boundaries = {}
+    for _, node_data in nx_graph.nodes(data=True):
+        if node_data['method'] != '':
+            continue
+        code_bound = [min(node_data['node_source_code_lines'][0]), max(node_data['node_source_code_lines'][0])]
+        abs_method_name = node_data['source_path'] + node_data['method']
+        if abs_method_name not in function_boundaries:
+            function_boundaries[abs_method_name] = code_bound
+        else:
+            function_boundaries[abs_method_name][0] = min(function_boundaries[abs_method_name][0], code_bound[0])
+            function_boundaries[abs_method_name][1] = max(function_boundaries[abs_method_name][1], code_bound[1])
+    return function_boundaries
+
+
+def get_function_labels(nx_graph):
+    function_labels = defaultdict()
+    for _, node_data in nx_graph.nodes(data=True):
+        abs_method_name = node_data['source_path'] + node_data['method']
+        node_label = node_data['node_info_vulnerabilities']
+        if node_label is None:
+            target = 0
+        else:
+            target = 1
+        if abs_method_name in function_labels:
+            function_labels[abs_method_name] = function_labels[abs_method_name] | target
+        else:
+            function_labels[abs_method_name] = target
+    return function_labels
+
+
 def get_node_ids(graph, source_files):
     file_ids = []
     for node_ids, node_data in graph.nodes(data=True):
@@ -243,6 +300,17 @@ def get_node_ids_by_filename(nx_graph):
             node_ids_dict[filename] = [node_ids]
         else:
             node_ids_dict[filename].append(node_ids)
+    return node_ids_dict
+
+def get_node_ids_by_abs_function_name(nx_graph):
+    nx_g = nx_graph
+    node_ids_dict = {}
+    for node_ids, node_data in nx_g.nodes(data=True):
+        abs_method_name = node_data['source_path'] + node_data['method']
+        if abs_method_name not in node_ids_dict:
+            node_ids_dict[abs_method_name] = [node_ids]
+        else:
+            node_ids_dict[abs_method_name].append(node_ids)
     return node_ids_dict
 
 
