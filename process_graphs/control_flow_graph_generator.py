@@ -12,7 +12,7 @@ import re
 import networkx as nx
 from slither.slither import Slither
 from slither.core.cfg.node import NodeType
-from solc import install_solc
+# from solc import install_solc
 
 
 pattern =  re.compile(r'\d.\d.\d+')

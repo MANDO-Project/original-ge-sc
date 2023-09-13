@@ -20,7 +20,8 @@ from .graph_utils import add_hetero_ids, \
                          reflect_graph, get_node_tracker, get_node_ids_by_filename, \
                          generate_random_node_features, generate_zeros_node_features, \
                          get_length_3_metapath, get_length_2_metapath, \
-                         generate_lstm_node_features
+                         generate_lstm_node_features, \
+                         get_node_token
 
 
 class HGTLayer(nn.Module):
@@ -285,6 +286,11 @@ class HGTVulNodeClassifier(nn.Module):
                 embedding = pickle.load(f, encoding="utf8")
             embedding = torch.tensor(embedding, device=device)
             features = map_node_embedding(nx_graph, embedding)
+        elif node_feature == 'inside_token':
+            embedding_dim = 512
+            features = get_node_token(nx_graph)
+            print(list(features.values())[0].shape)
+            self.in_size = list(features.values())[0].shape[-1]
 
         self.symmetrical_global_graph = self.symmetrical_global_graph.to(self.device)
         # self.symmetrical_global_graph.ndata['feat'] = features
@@ -311,7 +317,7 @@ class HGTVulNodeClassifier(nn.Module):
 
         # Get Node Labels
         node_labels, labeled_node_ids, label_ids = get_node_label(nx_graph)
-        print('Bug dict: ', label_ids)
+        # print('Bug dict: ', label_ids)
         node_ids_dict = get_node_ids_dict(nx_graph)
 
         # Reflect graph data
@@ -325,6 +331,12 @@ class HGTVulNodeClassifier(nn.Module):
             for ntype in self.symmetrical_global_graph.ntypes:
                 features[ntype] = self._nodetype2onehot(ntype).repeat(symmetrical_global_graph.num_nodes(ntype), 1).to(self.device)
             self.in_size = len(self.node_types)
+        elif self.node_feature == 'inside_token':
+            embedding_dim = 512
+            features = get_node_token(nx_graph)
+            # print(list(features.values())[0].shape)
+            self.in_size = list(features.values())[0].shape[-1]
+
         for ntype in self.symmetrical_global_graph.ntypes:
             emb = nn.Parameter(features[ntype], requires_grad = False)
             symmetrical_global_graph.nodes[ntype].data['inp'] = emb.to(self.device)

@@ -69,6 +69,17 @@ def map_node_embedding(nx_graph, embedding):
     return features
 
 
+def get_node_token(nx_graph):
+    features = {}
+    for node_ids, node_data in nx_graph.nodes(data=True):
+        node_type = node_data['node_type']
+        if node_type not in features:
+            features[node_type] = node_data['token'].unsqueeze(0)
+        else:
+            features[node_type] = torch.cat((features[node_type], node_data['token'].unsqueeze(0)))
+    return features
+
+
 def generate_random_node_features(nx_graph, feature_dims):
     nx_g = nx_graph
     features = {}
@@ -153,9 +164,9 @@ def get_node_label(nx_graph):
             target = 0
             labeled_node_ids['valid'].append(node_id)
         else:
-            bug_type = node_label[0]['category']
-            if bug_type not in label_ids:
-                label_ids[bug_type] = len(label_ids)
+            # bug_type = node_label[0]['category']
+            # if bug_type not in label_ids:
+            #     label_ids[bug_type] = len(label_ids)
             # target = label_ids[bug_type]
             # if bug_type == 'time_manipulation':
             #     target = 1

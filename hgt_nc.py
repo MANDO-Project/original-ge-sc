@@ -1,5 +1,4 @@
 import os
-from tkinter import N
 
 import torch
 import numpy as np
@@ -288,8 +287,8 @@ if __name__ == '__main__':
     args.update(default_configure)
     torch.manual_seed(args['seed'])
 
-    if not os.path.exists(args['output_models']):
-        os.makedirs(args['output_models'])
+    # if not os.path.exists(args['output_models']):
+    #     os.makedirs(args['output_models'])
 
     # Training
     if not args['test']:
@@ -306,9 +305,9 @@ if __name__ == '__main__':
         test_files = [f for f in os.listdir(args['testset']) if f.endswith('.sol')]
         model = HGTVulNodeClassifier(args['compressed_graph'], feature_extractor=None, node_feature=args['node_feature'], device=args['device'])
         bugtype = args['log_dir'].split('/')[-1]
-        model.load_state_dict(torch.load(os.path.join(args['output_models'], f'{bugtype}_hgt.pth')))
-        model.eval()
+        model.load_state_dict(torch.load(args['output_models'], map_location=torch.device('cpu')))
         model.to(args['device'])
+        model.eval()
         test_ids = get_node_ids(nx_graph, test_files)
         targets = torch.tensor(model.node_labels, device=args['device'])
         buggy_node_ids = torch.nonzero(targets).squeeze().tolist()
@@ -354,13 +353,21 @@ if __name__ == '__main__':
                 test_mask = test_mask.bool()
             print(f"Testing on {len(test_ids)} nodes")
             print('Node type: ', model.ntypes_dict)
+        else:
+            # extra_graph = ['arbitrary_location_write_simple.sol']
+            extra_graph = nx_graph
+            merged_graph = nx_graph
 
         with torch.no_grad():
             logits, node_labels, attention_layer = model.extend_forward(extra_graph)
             edge_attr = set()
             node_attr = set()
             symmetrical_global_graph = model.symmetrical_global_graph
-            # print(attention_layer)
+            for k, v in attention_layer[0].items():
+                print(k, v)
+
+            # print(list(attention_layer.values())[30].shape)
+
             # print(graph.ndata.keys())
             node_types = get_node_types(merged_graph)
             edge_types = get_edge_types(merged_graph)
@@ -368,7 +375,7 @@ if __name__ == '__main__':
             print(edge_types)
             att_score = {0: [], 1: []}
             for idx, edge in enumerate(edge_types):
-                print(edge)
+                # print(edge)
                 # print(attention_layer[0][edge], attention_layer[0][edge].shape)
                 # print(symmetrical_global_graph.edges(etype=edge), symmetrical_global_graph.edges(etype=edge)[0].shape)
                 source_ = symmetrical_global_graph.edges(etype=edge)[0]
@@ -392,7 +399,7 @@ if __name__ == '__main__':
 
 
             # print(len(merged_graph.edges))
-            # draw_graph(merged_graph, att_score)
+            draw_graph(merged_graph, att_score)
             # for src, dst, data in graph.edges(data=True):
             #     edge_attr.update(data.keys())
             # for n, data in graph.nodes(data=True):

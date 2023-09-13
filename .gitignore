@@ -22,3 +22,7 @@ results/
 *.gpickle
 *.json
 forensics/graph_hiddends/*
+*.sol
+*.evm
+*.pkl
+*.dot
