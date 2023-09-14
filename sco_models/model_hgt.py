@@ -494,6 +494,10 @@ class HGTVulGraphClassifier(nn.Module):
             self.in_size = embedding_dim
             features = generate_lstm_node_features(nx_graph)
             features = {k: v for k, v in features.items()}
+        elif node_feature == 'inside_token':
+            embedding_dim = 512
+            self.in_size = embedding_dim
+            features = get_node_token(nx_graph)
 
         self.symmetrical_global_graph = self.symmetrical_global_graph.to(self.device)
         self.symmetrical_global_graph.ndata['feat'] = features

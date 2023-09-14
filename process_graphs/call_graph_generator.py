@@ -24,6 +24,14 @@ from slither.core.variables.variable import Variable
 logger = logging.getLogger("Slither-simil")
 
 
+def process_pydot_graph(nx_graph):
+    pydot_graph = deepcopy(nx_graph)
+    for n_id, node in nx_graph.nodes(data=True):
+        for k, v in node.items():
+            pydot_graph.nodes[n_id][k] = f'"{v}"'
+    return pydot_graph
+
+
 pattern =  re.compile(r'\d.\d.\d+')
 def get_solc_version(source):
     with open(source, 'r') as f:
@@ -453,6 +461,9 @@ def compress_full_smart_contracts(smart_contracts, output, vulnerabilities=None)
     # nx.nx_agraph.write_dot(full_graph, join(output, 'compress_call_graphs_no_solidity_calls_buggy.dot'))
     # print('Dumped succesfully:', join(output, 'compress_call_graphs_no_solidity_calls_buggy.dot'))
     nx.write_gpickle(full_graph, output)
+    # pydot_graph = process_pydot_graph(full_graph)
+    # nx.nx_pydot.to_pydot(pydot_graph)
+    # nx.nx_pydot.write_dot(pydot_graph, output.replace('.gpickle', '.dot'))
     print('Dumped succesfully:', output)
 
 def merge_data_from_vulnerabilities_json_files(list_vulnerabilities_json_files):
@@ -499,17 +510,31 @@ class GESCPrinters(AbstractPrinter):
 if __name__ == '__main__':
     # smart_contract_path = 'data/extracted_source_code/' 
     # output_path = 'data/extracted_source_code/'
+
     ROOT = './experiments/ge-sc-data/source_code'
-    bug_type = {'access_control': 57, 'arithmetic': 60, 'denial_of_service': 46,
-              'front_running': 44, 'reentrancy': 71, 'time_manipulation': 50, 
-              'unchecked_low_level_calls': 95}
+    clean_dest = f'{ROOT}/clean'
+
+    bug_type = {
+            #   'access_control': 57, 
+            #   'arithmetic': 60, 'denial_of_service': 46,
+            #   'front_running': 44, 'reentrancy': 71, 'time_manipulation': 50, 
+              'unchecked_low_level_calls': 95
+              }
 
     for bug, counter in bug_type.items():
         # source = f'{ROOT}/{bug}/buggy_curated'
-        # output = f'{ROOT}/{bug}/buggy_curated/cg_compressed_graphs.gpickle'
-        source = f'{ROOT}/{bug}/curated'
-        output = f'{ROOT}/{bug}/curated/cg_compressed_graphs.gpickle'
-        smart_contracts = [join(source, f) for f in os.listdir(source) if f.endswith('.sol')]
+        # output = f'{ROOT}/{bug}/buggy_curated/more_clean_cg_compressed_graphs.gpickle'
+        source = f'{ROOT}/{bug}/clean_{counter}_buggy_curated_0'
+        # output = f'{ROOT}/{bug}/clean_{counter}_buggy_curated_0/more_clean_cg_compressed_graphs.gpickle'
+        output = 'experiments/ge-sc-data/source_code/test_graphs/cg_buggy_24.gpickle'
+
+        # source = f'{ROOT}/{bug}/curated'
+        # output = f'{ROOT}/{bug}/curated/cg_compressed_graphs.gpickle'
+        # smart_contracts = [join(source, f) for f in os.listdir(source) if f.endswith('.sol')]
+        # smart_contracts += [join(clean_dest, f) for f in os.listdir(clean_dest) if f.endswith('.sol')]
+        smart_contracts = ['experiments/ge-sc-data/source_code/test_graphs/buggy_24.sol']
+
+
         list_vulnerabilities_json_files = ['data/solidifi_buggy_contracts/reentrancy/vulnerabilities.json',
             # 'data/solidifi_buggy_contracts/access_control/vulnerabilities.json',
             'data/smartbug-dataset/vulnerabilities.json']

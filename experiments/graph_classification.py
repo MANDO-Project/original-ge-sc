@@ -53,12 +53,13 @@ COMPRESSED_GRAPH = 'cfg_cg'
 DATASET = 'smartbugs'
 STRUCTURE = args['model']
 BYTECODE = args['bytecode']
-TRAIN_RATE = 0.7
-VAL_RATE = 0.3
+TRAIN_RATE = 0.8
+VAL_RATE = 0.2
 ratio = 1
 
 
 models = ['base_metapath2vec', 'base_line', 'base_node2vec', 'nodetype', 'metapath2vec', 'line', 'node2vec']
+models = ['nodetype']
 # bug_list = ['access_control', 'arithmetic', 'denial_of_service',
 #             'front_running', 'reentrancy', 'time_manipulation', 
 #             'unchecked_low_level_calls']
@@ -326,10 +327,15 @@ def base_node2vec(dataset, bugtype, node2vec_embedded, file_name_dict, device, r
 
 
 def nodetype(compressed_graph, dataset, feature_extractor, bugtype, device, repeat):
-    logs = f'{ROOT}/logs/{TASK}/byte_code/{DATASET}/{BYTECODE}/{STRUCTURE}/{COMPRESSED_GRAPH}/nodetype/{bugtype}/'
+    logs = f'{ROOT}/logs/{TASK}/source_code/{DATASET}/{STRUCTURE}/{COMPRESSED_GRAPH}/nodetype/{bugtype}/'
+    print('Saving log at ', join(logs, 'test_report.json'))
+    # logs = f'{ROOT}/logs/{TASK}/byte_code/{DATASET}/{BYTECODE}/{STRUCTURE}/{COMPRESSED_GRAPH}/nodetype/{bugtype}/'
+
     if not os.path.exists(logs):
         os.makedirs(logs)
-    output_models = f'{ROOT}/models/{TASK}/byte_code/{DATASET}/{BYTECODE}/{STRUCTURE}/{COMPRESSED_GRAPH}/nodetype/{bugtype}/'
+    output_models = f'{ROOT}/models/{TASK}/source_code/{DATASET}/{STRUCTURE}/{COMPRESSED_GRAPH}/nodetype/{bugtype}/'
+    # output_models = f'{ROOT}/models/{TASK}/byte_code/{DATASET}/{BYTECODE}/{STRUCTURE}/{COMPRESSED_GRAPH}/nodetype/{bugtype}/'
+    
     if not os.path.exists(output_models):
         os.makedirs(output_models)
     feature_extractor = feature_extractor
@@ -599,23 +605,42 @@ def zeros(compressed_graph, dataset, feature_dims, bugtype, device, repeat):
     with open(join(logs, 'test_report.json'), 'w') as f:
         json.dump(report, f, indent=2)
 
+
 @timebudget
 def main(device):
     for bugtype in bug_list:
         print('Bugtype {}'.format(bugtype))
         for i in range(REPEAT):
             print(f'Train bugtype {bugtype} {i}-th')
-            compressed_graph = f'{ROOT}/ge-sc-data/byte_code/{DATASET}/{BYTECODE}/gpickles/{bugtype}/clean_{file_counter[bugtype]}_buggy_curated_0/compressed_graphs/{BYTECODE}_balanced_compressed_graphs.gpickle'
+            # compressed_graph = f'{ROOT}/ge-sc-data/byte_code/{DATASET}/{BYTECODE}/gpickles/{bugtype}/clean_{file_counter[bugtype]}_buggy_curated_0/compressed_graphs/{BYTECODE}_balanced_compressed_graphs.gpickle'
+            # compressed_graph = f'{ROOT}/ge-sc-data/source_code/{bugtype}/clean_{file_counter[bugtype]}_buggy_curated_0/more_clean_cfg_cg_compressed_graphs.gpickle'
+            # compressed_graph = f'{ROOT}/ge-sc-data/source_code/{bugtype}/clean_{file_counter[bugtype]}_buggy_curated_0/cfg_cg_compressed_graphs.gpickle'
+            compressed_graph = f'{ROOT}/ge-sc-data/source_code/{bugtype}/clean_{file_counter[bugtype]}_buggy_curated_0/more_clean_cfg_cg_compressed_graphs.gpickle'
+
             nx_graph = nx.read_gpickle(compressed_graph)
             file_name_dict = get_node_id_by_file_name(nx_graph)
-            # label = f'{ROOT}/ge-sc-data/byte_code/{DATASET}/{BYTECODE}/gpickles/{bugtype}/clean_{file_counter[bugtype]}_buggy_curated_0/graph_labels.json'
-            label = f'{ROOT}/ge-sc-data/byte_code/smartbugs/contract_labels/{bugtype}/{BYTECODE}_balanced_contract_labels.json'
+            # label = f'{ROOT}/ge-sc-data/byte_code/smartbugs/contract_labels/{bugtype}/{BYTECODE}_balanced_contract_labels.json'
+            label = f'{ROOT}/ge-sc-data/source_code/{bugtype}/clean_{file_counter[bugtype]}_buggy_curated_0/graph_labels.json'
+
             # source_path = f'{ROOT}/ge-sc-data/byte_code/{DATASET}/{BYTECODE}/gpickles/{bugtype}/clean_{file_counter[bugtype]}_buggy_curated_0/'
             with open(label, 'r') as f:
                 annotations = json.load(f)
             # total_files = [f for f in os.listdir(source_path) if f.endswith('.gpickle')]
-            total_files = [anno['contract_name'] for anno in annotations]
+
+            black_list = [
+                           '0x0f35d82007119dc339af57b29dc8ae794b92926c.sol', 'FibonacciBalance.sol',
+                            'insecure_transfer.sol', 'timelock.sol', '0x580f18c090914eb9edbb3d6a810c9789a91c7ba4.sol',
+                            '0xeb11ba96eabdf5d2f540d840260fb3dd5d03f641.sol', '0xea68d87ae3a55ba91c1a8e6488627a175be81588.sol',
+                            '0x22aae864a5b1f8e3d41bba0050e0b0027cd793ce.sol',
+                            'reentrancy_bonus.sol', '0x966889549fe7b3b950063151f6e2ad7651becdb9.sol', '0x1839864616602fee4d5cc7a6448dd257636c9a9a.sol', 'reentrancy_cross_function.sol', 'etherstore.sol', '0x416768387836bd8715d127ef9065975325cfad14.sol', '0xa7fac98b27435c90b916950bbeed91c7dbfe3e44.sol', 'reentrancy_insecure.sol',
+                            '0x0f35d82007119dc339af57b29dc8ae794b92926c.sol',
+                            '0x366cf49c6bc3986b20ecf4fd7c05f0c617332e8c.sol', '0x0364a98148b7031451e79b93449b20090d79702a.sol', '0x524960d55174d912768678d8c606b4d50b79d7b1.sol', '0x2972d548497286d18e92b5fa1f8f9139e5653fd2.sol', '0xd5967fed03e85d1cce44cab284695b41bc675b5c.sol', '0x580f18c090914eb9edbb3d6a810c9789a91c7ba4.sol', '0x325c96fa60eeb3a9f88bab75278b5ff18398c919.sol', '0x663e4229142a27f00bafb5d087e1e730648314c3.sol', '0x322bfda9f9ab156d12bd107b1c84ba0e06e46278.sol'
+                          ]
+
+            total_files = [anno['contract_name'] for anno in annotations if anno['contract_name'] if anno['contract_name'] not in black_list]
             assert len(total_files) <= len(annotations)
+
+
             # targets = []
             # for file in total_files:
             #     try:
@@ -623,11 +648,22 @@ def main(device):
             #     except StopIteration:
             #         raise f'{file} not found!'
             #     targets.append(target)
-            targets = [anno['targets'] for anno in annotations]
+            targets = [anno['targets'] for anno in annotations if anno['contract_name'] not in black_list]
             targets = torch.tensor(targets, device=device)
             assert len(total_files) == len(targets)
-            print(len(total_files), len(targets))
+            # print(len(total_files), len(targets))
+
+            # Add more clean file
+            clean_dir = './experiments/ge-sc-data/source_code/clean'
+            clean_sources = [f for f in os.listdir(clean_dir) if f.endswith('.sol')]
+
+
             X_train, X_val, y_train, y_val = train_test_split(total_files, targets, train_size=TRAIN_RATE)
+
+            X_val += clean_sources
+            # y_clean = torch.tensor([0] * len(clean_sources), device=device)
+            y_val = torch.cat((y_val, torch.tensor([0 for _ in range(len(clean_sources))], device=device)))
+
             dataset = (tuple(X_train), tuple(X_val), y_train, y_val)
             print('Start training with {}/{} train/val smart contracts'.format(len(X_train), len(X_val)))
             gae_embedded = f'{ROOT}/ge-sc-data/byte_code/{DATASET}/{BYTECODE}/gpickles/gesc_matrices_node_embedding/matrix_gae_dim128_of_core_graph_of_{bugtype}_{COMPRESSED_GRAPH}_compressed_graphs.pkl'
@@ -640,12 +676,12 @@ def main(device):
             # base_node2vec(dataset, bugtype, node2vec_embedded, file_name_dict, device, i)
 
             ## Out models
-            # nodetype(compressed_graph, dataset, None, bugtype, device, i)
+            nodetype(compressed_graph, dataset, None, bugtype, device, i)
             # metapath2vec(compressed_graph, dataset, None, bugtype, device, i)
             # gae(compressed_graph, dataset, line_embedded, bugtype, device, i)
             # line(compressed_graph, dataset, line_embedded, bugtype, device, i)
             # node2vec(compressed_graph, dataset, node2vec_embedded, bugtype, device, i)
-            lstm(compressed_graph, dataset, bugtype, device, i)
+            # lstm(compressed_graph, dataset, bugtype, device, i)
             # random(compressed_graph, dataset, 2, bugtype, device, i)
             # random(compressed_graph, dataset, 8, bugtype, device, i)
             # random(compressed_graph, dataset, 16, bugtype, device, i)
@@ -692,7 +728,9 @@ def get_results():
             if  model in ['gae', 'base_gae'] and bugtype in ['arithmetic', 'front_running', 'reentrancy', 'unchecked_low_level_calls']:
                 buggy_f1, macro_f1 = '-', '-'
             else:
-                report_path = f'{ROOT}/logs/{TASK}/byte_code/{DATASET}/{BYTECODE}/{STRUCTURE}/{COMPRESSED_GRAPH}/{model}/{bugtype}/test_report.json'
+                # report_path = f'{ROOT}/logs/{TASK}/byte_code/{DATASET}/{BYTECODE}/{STRUCTURE}/{COMPRESSED_GRAPH}/{model}/{bugtype}/test_report.json'
+                report_path = f'{ROOT}/logs/{TASK}/source_code/{DATASET}/{STRUCTURE}/{COMPRESSED_GRAPH}/nodetype/{bugtype}/test_report.json'
+                print(report_path)
                 buggy_f1, macro_f1 = get_avg_results(report_path, top_rate=0.5)
             # buggy_f1, macro_f1 = get_max_results(report_path)
             if model not in buggy_f1_report:
@@ -737,7 +775,8 @@ def get_runtime_result():
     test_time_report = {}
     for bugtype in bug_list:
         for model in models:
-            report_path = f'{ROOT}/logs/{TASK}/source_code/{STRUCTURE}/{COMPRESSED_GRAPH}/{model}/{bugtype}/clean_{file_counter[bugtype]}_buggy_curated_0/test_report.json'
+            # report_path = f'{ROOT}/logs/{TASK}/source_code/{STRUCTURE}/{COMPRESSED_GRAPH}/{model}/{bugtype}/clean_{file_counter[bugtype]}_buggy_curated_0/test_report.json'
+            report_path = f'{ROOT}/logs/{TASK}/source_code/{DATASET}/{STRUCTURE}/{COMPRESSED_GRAPH}/nodetype/{bugtype}/test_report.json'
             train_time, test_time = get_exp_time(report_path)
             # train_time, test_time = get_max_results(report_path)
             if model not in train_time_report:
@@ -766,6 +805,7 @@ if __name__ == '__main__':
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
     mps_device = 'mps'
     if args['result']:
-            get_runtime_result()
+            # get_runtime_result()
+            get_results()
     else:
         main(device)

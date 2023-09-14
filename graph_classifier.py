@@ -15,6 +15,7 @@ from sco_models.model_hetero import MANDOGraphClassifier
 from sco_models.model_hgt import HGTVulGraphClassifier
 from sco_models.visualization import visualize_average_k_folds, visualize_k_folds
 from sco_models.utils import score, get_classification_report, get_confusion_matrix
+from sco_models.tools import EarlyStopping
 
 
 def train(args, model, train_loader, optimizer, loss_fcn, epoch):
@@ -94,7 +95,7 @@ def main(args):
     ethdataset = EthIdsDataset(args['label'])
     kfold = KFold(n_splits=k_folds, shuffle=True)
     train_results = {}
-    val_results = {}
+    val_results = {'buggy_f1_folds': [], 'macro_f1_folds': []}
     # Get feature extractor
     print('Getting features')
     if args['node_feature'] == 'han':
@@ -136,15 +137,18 @@ def main(args):
         loss_fcn = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.01, total_steps=total_steps)
+        early_stopping = EarlyStopping(patience=args['patience'], delta=0.001, verbose=True)
+        earliest_epoch = 0
+        checkpoint_path = args['output_models']
         lrs = []
         for epoch in range(epochs):
             print('Fold {} - Epochs {}'.format(fold, epoch))
             model, train_loss, train_micro_f1, train_macro_f1, train_acc, train_buggy_f1, lrs = train(args, model, train_dataloader, optimizer, loss_fcn, epoch)
-            print('Train Loss: {:.4f} | Train Micro f1: {:.4f} | Train Macro f1: {:.4f} | Train Accuracy: {:.4f}'.format(
-                    train_loss, train_micro_f1, train_macro_f1, train_acc))
-            val_loss, val_micro_f1, val_macro_f1, val_acc, val_buggy_f1 = validate(args, model, val_dataloader, loss_fcn)
-            print('Val Loss:   {:.4f} | Val Micro f1:   {:.4f} | Val Macro f1:   {:.4f} | Val Accuracy:   {:.4f}'.format(
-                    val_loss, val_micro_f1, val_macro_f1, val_acc))
+            # print('Train Loss: {:.4f} | Train Micro f1: {:.4f} | Train Macro f1: {:.4f} | Train Accuracy: {:.4f}'.format(
+            #         train_loss, train_micro_f1, train_macro_f1, train_acc))
+            # val_loss, val_micro_f1, val_macro_f1, val_acc, val_buggy_f1 = validate(args, model, val_dataloader, loss_fcn)
+            # print('Val Loss:   {:.4f} | Val Micro f1:   {:.4f} | Val Macro f1:   {:.4f} | Val Accuracy:   {:.4f}'.format(
+            #         val_loss, val_micro_f1, val_macro_f1, val_acc))
             scheduler.step()
             train_results[fold]['loss'].append(train_loss)
             train_results[fold]['micro_f1'].append(train_micro_f1)
@@ -158,30 +162,55 @@ def main(args):
             val_results[fold]['macro_f1'].append(val_macro_f1)
             val_results[fold]['buggy_f1'].append(val_buggy_f1)
             val_results[fold]['acc'].append(val_acc)
-
-        _, _, _, classification_report, confusion_report = test(args, model, val_dataloader)
-        for category, metrics in classification_total_report.items():
-            for metric in metrics.keys():
-                classification_total_report[category][metric].append(classification_report[category][metric])
-
-        confusion_matrix_total_report.append(confusion_report)
+            # Early stopping
+            early_stopping(val_loss)
+            if early_stopping.early_stop:
+                if stop_epoch >= epoch:
+                    checkpoint_path = args['output_models'].replace('.pth', f'_{epoch}_{fold}.pth')
+                    early_stopping.save_checkpoint(val_loss, model, checkpoint_path)
+                    earliest_epoch = epoch
+                    break
+                stop_epoch = epoch
+        print("Early stopping at epoch {}".format(earliest_epoch))
         print('Saving model fold {}'.format(fold))
-        save_path = os.path.join(args['output_models'], f'han_fold_{fold}.pth')
-        bugtype = args['log_dir'].split('/')[-1]
-        # save_path = os.path.join(args['output_models'])
-        torch.save(model.state_dict(), save_path)
+
+        # _, _, _, classification_report, confusion_report = test(args, model, val_dataloader)
+        # for category, metrics in classification_total_report.items():
+        #     for metric in metrics.keys():
+        #         classification_total_report[category][metric].append(classification_report[category][metric])
+
+        # confusion_matrix_total_report.append(confusion_report)
+
+        # print('Saving model fold {}'.format(fold))
+        # save_path = os.path.join(args['output_models'], f'han_fold_{fold}.pth')
+        # bugtype = args['log_dir'].split('/')[-1]
+        # torch.save(model.state_dict(), save_path)
+
+        torch.save(model.state_dict(), args['output_models'])
+        # print('Testing phase')
+        # print(f'Testing on {len(test_ids)} nodes')
+
+        saved_models = model
+        saved_models.load_state_dict(torch.load(checkpoint_path))
+        saved_models.eval()
+        _, _, _, classification_report, _ = test(args, model, val_dataloader)
+        val_results['buggy_f1_folds'].append(classification_report['1']['f1-score'])
+        val_results['macro_f1_folds'].append(classification_report['macro avg']['f1-score'])
+
+        
     
-    headers = ['precision', 'recall', 'f1-score', 'avg_support']
-    classification_tabular_report = []
-    for category, metrics in classification_total_report.items():
-        row = [category]
-        for metric in metrics.keys():
-            std = np.std(classification_total_report[category][metric])
-            classification_total_report[category][metric] = np.max(classification_total_report[category][metric])
-            row.append(f'{classification_total_report[category][metric]}(#{classification_total_report[category][metric]*std:.2f})')
-        classification_tabular_report.append(row)
-    print(tabulate(classification_tabular_report, headers=headers))
-    print(np.round(np.mean(confusion_matrix_total_report, axis=0)))
+    # headers = ['precision', 'recall', 'f1-score', 'avg_support']
+    # classification_tabular_report = []
+    # for category, metrics in classification_total_report.items():
+    #     row = [category]
+    #     for metric in metrics.keys():
+    #         std = np.std(classification_total_report[category][metric])
+    #         classification_total_report[category][metric] = np.max(classification_total_report[category][metric])
+    #         row.append(f'{classification_total_report[category][metric]}(#{classification_total_report[category][metric]*std:.2f})')
+    #     classification_tabular_report.append(row)
+    # print(tabulate(classification_tabular_report, headers=headers))
+    # print(np.round(np.mean(confusion_matrix_total_report, axis=0)))
+    del model
     return train_results, val_results
 
 
@@ -210,6 +239,7 @@ if __name__ == '__main__':
     node_feature_params.add_argument('--feature_extractor', type=str, default='./models/metapath2vec_cfg/han_fold_1.pth', help='If "node_feature" is "GAE" or "LINE" or "Node2vec", we need a extracted features from those models')
     node_feature_params.add_argument('--node_feature', type=str, default='metapath2vec', help='Kind of node features we want to use, here is one of "nodetype", "metapath2vec", "han", "gae", "line", "node2vec"')
     train_option_params = parser.add_argument_group(title='Optional configures', description='Advanced options')
+    train_option_params.add_argument('--num_epochs', type=int, default=100, help='Config number of epochs')
     train_option_params.add_argument('--k_folds', type=int, default=5, help='Config for cross validate strategy')
     train_option_params.add_argument('--test', action='store_true', help='Set true if you only want to run test phase')
     train_option_params.add_argument('--non_visualize', action='store_true', help='Wheather you want to visualize the metrics')
@@ -221,7 +251,7 @@ if __name__ == '__main__':
     'hidden_units': 8,
     'dropout': 0.6,
     'weight_decay': 0.001,
-    'num_epochs': 20,
+    # 'num_epochs': 20,
     'batch_size': 256,
     'patience': 100,
     'device': 'cuda:0' if torch.cuda.is_available() else 'cpu'
@@ -229,8 +259,9 @@ if __name__ == '__main__':
     args.update(default_configure)
     torch.manual_seed(args['seed'])
 
-    if not os.path.exists(args['output_models']):
-        os.makedirs(args['output_models'])
+    os.makedirs(os.path.split(args['output_models'])[0], exist_ok=True)
+    # if not os.path.exists(args['output_models']):
+    #     os.makedirs(args['output_models'])
 
     # Training
     if not args['test']:
@@ -241,7 +272,9 @@ if __name__ == '__main__':
             if os.path.exists(args['log_dir']):
                 rmtree(args['log_dir'])
             # visualize_average_k_folds(args, train_results, val_results)
-            visualize_k_folds(args, train_results, val_results)
+            # visualize_k_folds(args, train_results, val_results)
+        print('Average Buggy F1 score of folds: {:.4f}'.format(np.mean(val_results['buggy_f1_folds'])*100))
+        print('Average Macro F1 score of folds: {:.4f}'.format(np.mean(val_results['macro_f1_folds'])*100))
     # Testing
     else:
         print('Testing phase')

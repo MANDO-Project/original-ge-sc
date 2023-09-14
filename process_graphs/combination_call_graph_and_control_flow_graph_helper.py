@@ -1,5 +1,16 @@
 import networkx as nx
 from os.path import join
+from copy import deepcopy
+
+
+def process_pydot_graph(nx_graph):
+    pydot_graph = deepcopy(nx_graph)
+    for n_id, node in nx_graph.nodes(data=True):
+        for k, v in node.items():
+            pydot_graph.nodes[n_id][k] = f'"{v}"'
+    return pydot_graph
+
+
 
 def print_nx_network_full_info(nx_graph):
     print('====Nodes info====')
@@ -96,19 +107,35 @@ if __name__ == '__main__':
     # print('Dumped succesfully:', join(output_path, 'merged_graph_cfg_and_cg.gpickle'))
 
     ROOT = './experiments/ge-sc-data/source_code'
-    bug_type = {'access_control': 57, 'arithmetic': 60, 'denial_of_service': 46,
-              'front_running': 44, 'reentrancy': 71, 'time_manipulation': 50, 
-              'unchecked_low_level_calls': 95}
+    bug_type = {
+            #   'access_control': 57, 
+            #   'arithmetic': 60, 'denial_of_service': 46,
+            #   'front_running': 44, 
+            # 'reentrancy': 71, 
+              'time_manipulation': 50, 
+              'unchecked_low_level_calls': 95
+              }
     for bug, counter in bug_type.items():
-        source = f'{ROOT}/{bug}/buggy_curated'
-        output = f'{ROOT}/{bug}/buggy_curated/cfg_compressed_graphs.gpickle'
-        input_cfg_path = f'{ROOT}/{bug}/buggy_curated/cfg_compressed_graphs.gpickle'
-        input_call_graph_path = f'{ROOT}/{bug}/buggy_curated/cg_compressed_graphs.gpickle'
+        # source = f'{ROOT}/{bug}/buggy_curated'
+        # output = f'{ROOT}/{bug}/buggy_curated/cfg_compressed_graphs.gpickle'
+        # input_cfg_path = f'{ROOT}/{bug}/buggy_curated/more_clean_cfg_compressed_graphs.gpickle'
+        # input_call_graph_path = f'{ROOT}/{bug}/buggy_curated/more_clean_cg_compressed_graphs.gpickle'
+        # output_path = f'{ROOT}/{bug}/buggy_curated/more_clean_cfg_cg_compressed_graphs.gpickle'
+        input_cfg_path = f'{ROOT}/{bug}/clean_{counter}_buggy_curated_0/more_clean_cfg_compressed_graphs.gpickle'
+        input_call_graph_path = f'{ROOT}/{bug}/clean_{counter}_buggy_curated_0/more_clean_cg_compressed_graphs.gpickle'
+        output_path = f'{ROOT}/{bug}/clean_{counter}_buggy_curated_0/more_clean_cfg_cg_compressed_graphs.gpickle'
+
+        input_cfg_path = f'experiments/ge-sc-data/source_code/test_graphs/cfg_buggy_24.gpickle'
+        input_call_graph_path = f'experiments/ge-sc-data/source_code/test_graphs/cg_buggy_24.gpickle'
+        output_path = 'experiments/ge-sc-data/source_code/test_graphs/cfg_cg_buggy_24.gpickle'
+
         input_cfg = nx.read_gpickle(input_cfg_path)
         input_call_graph = nx.read_gpickle(input_call_graph_path)
         dict_node_label_cfg_and_cg = mapping_cfg_and_cg_node_labels(input_cfg, input_call_graph)
         merged_graph = add_new_cfg_edges_from_call_graph(input_cfg, dict_node_label_cfg_and_cg, input_call_graph)
-        output_path = f'{ROOT}/{bug}/buggy_curated/cfg_cg_compressed_graphs.gpickle'
         # output_path = f'/home/minhnn/minhnn/ICSE/ge-sc/experiments/ge-sc-data/source_code/compressed_graphs/buggy_curated/{bug}_cfg_cg_compressed_graphs.gpickle'
         update_cfg_node_types_by_call_graph_node_types(merged_graph, dict_node_label_cfg_and_cg)
-        nx.write_gpickle(merged_graph, output_path)
+        pydot_graph = process_pydot_graph(merged_graph)
+        nx.nx_pydot.to_pydot(pydot_graph)
+        nx.nx_pydot.write_dot(pydot_graph, output_path.replace('.gpickle', '.dot'))
+        # nx.write_gpickle(merged_graph, output_path)
